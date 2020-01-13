@@ -1,129 +1,143 @@
+#! /usr/bin/python
 # -*- coding: utf-8 -*-
 
-from .core import *
+import tensorflow as tf
+
+from tensorlayer import logging
+from tensorlayer.layers.core import Layer
+
+__all__ = [
+    'Concat',
+    'Elementwise',
+]
 
 
-class ConcatLayer(Layer):
-    """A layer that concats multiple tensors according to given axis..
+class Concat(Layer):
+    """A layer that concats multiple tensors according to given axis.
 
     Parameters
     ----------
-    layers : list of :class:`Layer`
-        List of layers to concatenate.
     concat_dim : int
         The dimension to concatenate.
-    name : str
+    name : None or str
         A unique layer name.
 
     Examples
     ----------
-    >>> sess = tf.InteractiveSession()
-    >>> x = tf.placeholder(tf.float32, shape=[None, 784])
-    >>> inputs = tl.layers.InputLayer(x, name='input_layer')
-    >>> net1 = tl.layers.DenseLayer(inputs, 800, act=tf.nn.relu, name='relu1_1')
-    >>> net2 = tl.layers.DenseLayer(inputs, 300, act=tf.nn.relu, name='relu2_1')
-    >>> net = tl.layers.ConcatLayer([net1, net2], 1, name ='concat_layer')
-    ...   InputLayer input_layer (?, 784)
-    ...   DenseLayer relu1_1: 800, relu
-    ...   DenseLayer relu2_1: 300, relu
-    ...   ConcatLayer concat_layer, 1100
-    >>> tl.layers.initialize_global_variables(sess)
-    >>> net.print_params()
-    ...     param 0: (784, 800) (mean: 0.000021, median: -0.000020 std: 0.035525)
-    ...     param 1: (800,)     (mean: 0.000000, median: 0.000000  std: 0.000000)
-    ...     param 2: (784, 300) (mean: 0.000000, median: -0.000048 std: 0.042947)
-    ...     param 3: (300,)     (mean: 0.000000, median: 0.000000  std: 0.000000)
-    ...     num of params: 863500
-    >>> net.print_layers()
-    ...     layer 0: ("Relu:0", shape=(?, 800), dtype=float32)
-    ...     layer 1: Tensor("Relu_1:0", shape=(?, 300), dtype=float32)
+    >>> class CustomModel(tl.models.Model):
+    >>>     def __init__(self):
+    >>>         super(CustomModel, self).__init__(name="custom")
+    >>>         self.dense1 = tl.layers.Dense(in_channels=20, n_units=10, act=tf.nn.relu, name='relu1_1')
+    >>>         self.dense2 = tl.layers.Dense(in_channels=20, n_units=10, act=tf.nn.relu, name='relu2_1')
+    >>>         self.concat = tl.layers.Concat(concat_dim=1, name='concat_layer')
+
+    >>>     def forward(self, inputs):
+    >>>         d1 = self.dense1(inputs)
+    >>>         d2 = self.dense2(inputs)
+    >>>         outputs = self.concat([d1, d2])
+    >>>         return outputs
 
     """
 
     def __init__(
             self,
-            layers,
-            concat_dim=1,
-            name='concat_layer',
+            concat_dim=-1,
+            name=None,  #'concat',
     ):
-        Layer.__init__(self, name=name)
-        self.inputs = []
-        for l in layers:
-            self.inputs.append(l.outputs)
-        try:  # TF1.0
-            self.outputs = tf.concat(self.inputs, concat_dim, name=name)
-        except Exception:  # TF0.12
-            self.outputs = tf.concat(concat_dim, self.inputs, name=name)
 
-        logging.info("ConcatLayer %s: axis: %d" % (self.name, concat_dim))
+        super(Concat, self).__init__(name)
+        self.concat_dim = concat_dim
 
-        self.all_layers = list(layers[0].all_layers)
-        self.all_params = list(layers[0].all_params)
-        self.all_drop = dict(layers[0].all_drop)
+        self.build(None)
+        self._built = True
 
-        for i in range(1, len(layers)):
-            self.all_layers.extend(list(layers[i].all_layers))
-            self.all_params.extend(list(layers[i].all_params))
-            self.all_drop.update(dict(layers[i].all_drop))
+        logging.info("Concat %s: concat_dim: %d" % (self.name, concat_dim))
 
-        self.all_layers = list_remove_repeat(self.all_layers)
-        self.all_params = list_remove_repeat(self.all_params)
+    def __repr__(self):
+        s = ('{classname}(concat_dim={concat_dim})')
+        return s.format(classname=self.__class__.__name__, **self.__dict__)
+
+    def build(self, inputs_shape):
+        pass
+
+    # @tf.function
+    def forward(self, inputs):
+        """
+
+        prev_layer : list of :class:`Layer`
+            List of layers to concatenate.
+        """
+        outputs = tf.concat(inputs, self.concat_dim, name=self.name)
+
+        return outputs
 
 
-class ElementwiseLayer(Layer):
+class Elementwise(Layer):
     """A layer that combines multiple :class:`Layer` that have the same output shapes
     according to an element-wise operation.
+    If the element-wise operation is complicated, please consider to use :class:`ElementwiseLambda`.
 
     Parameters
     ----------
-    layers : list of :class:`Layer`
-        The list of layers to combine.
     combine_fn : a TensorFlow element-wise combine function
         e.g. AND is ``tf.minimum`` ;  OR is ``tf.maximum`` ; ADD is ``tf.add`` ; MUL is ``tf.multiply`` and so on.
         See `TensorFlow Math API <https://www.tensorflow.org/versions/master/api_docs/python/math_ops.html#math>`__ .
-    name : str
+        If the combine function is more complicated, please consider to use :class:`ElementwiseLambda`.
+    act : activation function
+        The activation function of this layer.
+    name : None or str
         A unique layer name.
 
     Examples
     --------
-    AND Logic
+    >>> class CustomModel(tl.models.Model):
+    >>>     def __init__(self):
+    >>>         super(CustomModel, self).__init__(name="custom")
+    >>>         self.dense1 = tl.layers.Dense(in_channels=20, n_units=10, act=tf.nn.relu, name='relu1_1')
+    >>>         self.dense2 = tl.layers.Dense(in_channels=20, n_units=10, act=tf.nn.relu, name='relu2_1')
+    >>>         self.element = tl.layers.Elementwise(combine_fn=tf.minimum, name='minimum', act=tf.identity)
 
-    >>> net_0 = tl.layers.DenseLayer(net_0, n_units=500,
-    ...                        act = tf.nn.relu, name='net_0')
-    >>> net_1 = tl.layers.DenseLayer(net_1, n_units=500,
-    ...                        act = tf.nn.relu, name='net_1')
-    >>> net_com = tl.layers.ElementwiseLayer(layer = [net_0, net_1],
-    ...                         combine_fn = tf.minimum,
-    ...                         name = 'combine_layer')
-
+    >>>     def forward(self, inputs):
+    >>>         d1 = self.dense1(inputs)
+    >>>         d2 = self.dense2(inputs)
+    >>>         outputs = self.element([d1, d2])
+    >>>         return outputs
     """
 
     def __init__(
             self,
-            layers,
             combine_fn=tf.minimum,
-            name='elementwise_layer',
+            act=None,
+            name=None,  #'elementwise',
     ):
-        Layer.__init__(self, name=name)
 
-        logging.info("ElementwiseLayer %s: size:%s fn:%s" % (self.name, layers[0].outputs.get_shape(), combine_fn.__name__))
+        super(Elementwise, self).__init__(name, act=act)
+        self.combine_fn = combine_fn
 
-        self.outputs = layers[0].outputs
-        # logging.info(self.outputs._shape, type(self.outputs._shape))
-        for l in layers[1:]:
-            if str(self.outputs.get_shape()) != str(l.outputs.get_shape()):
-                raise Exception("Hint: the input shapes should be the same. %s != %s" % (self.outputs.get_shape(), str(l.outputs.get_shape())))
-            self.outputs = combine_fn(self.outputs, l.outputs, name=name)
+        self.build(None)
+        self._built = True
 
-        self.all_layers = list(layers[0].all_layers)
-        self.all_params = list(layers[0].all_params)
-        self.all_drop = dict(layers[0].all_drop)
+        logging.info(
+            "Elementwise %s: fn: %s act: %s" %
+            (self.name, combine_fn.__name__, ('No Activation' if self.act is None else self.act.__name__))
+        )
 
-        for i in range(1, len(layers)):
-            self.all_layers.extend(list(layers[i].all_layers))
-            self.all_params.extend(list(layers[i].all_params))
-            self.all_drop.update(dict(layers[i].all_drop))
+    def __repr__(self):
+        actstr = self.act.__name__ if self.act is not None else 'No Activation'
+        s = ('{classname}(combine_fn={combine_fn}, ' + actstr)
+        if self.name is not None:
+            s += ', name=\'{name}\''
+        s += ')'
+        return s.format(classname=self.__class__.__name__, **self.__dict__)
 
-        self.all_layers = list_remove_repeat(self.all_layers)
-        self.all_params = list_remove_repeat(self.all_params)
-        # self.all_drop = list_remove_repeat(self.all_drop)
+    def build(self, inputs_shape):
+        pass
+
+    # @tf.function
+    def forward(self, inputs):
+        outputs = inputs[0]
+        for input in inputs[1:]:
+            outputs = self.combine_fn(outputs, input, name=self.name)
+        if self.act:
+            outputs = self.act(outputs)
+        return outputs

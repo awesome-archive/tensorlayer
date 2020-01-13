@@ -5,25 +5,31 @@ default:
 	@echo "\tmake install3  # install tensorlayer in current workspace with pip3"
 
 lint:
-	pylint example/*.py
+	pylint examples/*.py
 	pylint tensorlayer
 
 test:
-	python tests/test_yapf_format.py
-	python tests/test_pydocstyle.py
-	python tests/test_mnist_simple.py
+	python3 tests/models/test_model_core.py
+	python3 tests/layers/test_layernode.py
+	python3 tests/files/test_utils_saveload.py
 
 format:
-	autoflake -i example/*.py
+	autoflake -i examples/*.py
 	autoflake -i tensorlayer/*.py
 	autoflake -i tensorlayer/**/*.py
 
-	isort -rc example
+	isort -rc examples
 	isort -rc tensorlayer
 
-	yapf -i example/*.py
+	yapf -i examples/*.py
 	yapf -i tensorlayer/*.py
 	yapf -i tensorlayer/**/*.py
 
 install3:
 	pip3 install -U . --user
+
+
+TAG = tensorlayer-docs:snaphot
+
+doc:
+	docker build --rm -t $(TAG) -f docker/docs/Dockerfile .
